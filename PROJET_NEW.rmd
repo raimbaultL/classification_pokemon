@@ -1,0 +1,356 @@
+---
+title: "Projet de classification"
+output:
+  word_document: default
+  html_document:
+    df_print: paged
+---
+
+<!-- Code pour justifier l'ensemble du document  -->
+<style>
+body {
+text-align: justify;
+background-color: #fcfbfc;
+font-size:16px;}
+h1 {
+  text-align: center;
+}
+
+</style>
+
+
+
+* Projet réalisé par :
+    + **LOUARN Justine**
+    + **RAIMBAULT Lucie**
+    + **DHENNIN NOLWENN**
+
+<br/>
+
+## Classification des Pokemons
+
+# IMPORTATION DES PACKAGES
+```{r include=FALSE}
+library(cluster)
+library(FactoMineR)
+library(dendextend)
+library(ggplot2)
+library(data.table)
+library(tidyverse)
+library(factoextra)
+library(NbClust)
+library(corrplot)
+library(data.table)
+library(tidyverse)
+library(ade4)
+```
+
+# IMPORTATION DES DONNEES 
+```{r include=FALSE}
+pokedex <- read.csv("pokedex.csv")
+head(pokedex)
+```
+
+# ANALYSE DES DONNEES
+```{r include=FALSE}
+summary(pokedex)
+nrow(pokedex)
+ncol(pokedex)
+```
+
+### Nettoyage des donnés :
+
+On enlève poids (weight_kg) et egg_cycles
+
+```{r include=FALSE}
+pokedex<-pokedex[-is.na(pokedex$egg_cycles),] 
+pokedex<-pokedex[-is.na(pokedex$weight_kg),] 
+#pokedex
+```
+
+On enlève les pokémons méga et on garde une seule forme de pokémon 
+
+```{r include=FALSE}
+pokedex<-pokedex[-which(pokedex$name%like% 'Mega'),] 
+pokedex <- pokedex %>% group_by(german_name) %>% filter (! duplicated(german_name))
+pokedex
+```
+
+Remplacement valeur abérrantes against_ice 125 -> 1/4
+
+```{r include=FALSE}
+pokedex$against_ice<-as.factor(pokedex$against_ice)
+levels(pokedex$against_ice)[7]<-0.25
+```
+
+
+# CHOIX DES VARIABLES
+
+On enlève base_friendship et base_experience ainsi que type_2 et ability_2, ability_hidden, egg_type2. et les variables de noms etc...
+
+
+```{r include=FALSE}
+pokedex<-pokedex[,-c(1:5,26,27,31,11,16,17)]
+#pokedex
+```
+
+
+On enlève species et ability car trop de modalités.
+
+```{r include=FALSE}
+pokedex<-pokedex[,-c(3,9)]
+```
+
+
+Indicatrices sur quelques modalités intéressantes:
+    + Pour le status nous choisissons de faire une indicatrice qui permet de savoir si le pokemon est normal ou non.
+    + Pour les types nous souhaitons garder les 3 types de base : eau (water), feu (fire), et herbe (grass)
+    + Pour egg_type nous faisons 2 indicatrices sur les types undiscoverd et field qui sont les modalités les plus présentes.
+
+```{r include=FALSE}
+## creation variable binaire normal/pas normal
+pokedex$normal<-as.factor(pokedex$status)
+levels(pokedex$normal)[c(1,2,4)]<-0
+levels(pokedex$normal)[2]<-1
+levels(pokedex$normal)
+
+## creation variables binaires type eau/feu/herbe
+pokedex$element<-as.factor(pokedex$type_1)
+#levels(pokedex$element)
+#table(pokedex$element)
+# water = 18
+# Fire = 7
+# Grass = 10
+
+# EAU
+pokedex$eau<-pokedex$element
+levels(pokedex$eau)[1:17]<-0
+levels(pokedex$eau)[2]<-1
+
+# FIRE
+pokedex$feu<-pokedex$element
+levels(pokedex$feu)[c(1:6,8:18)]<-0
+levels(pokedex$feu)[2]<-1
+
+
+# GRASS
+pokedex$herbe<-pokedex$element
+levels(pokedex$herbe)[c(1:9,11:18)]<-0
+levels(pokedex$herbe)[2]<-1
+
+pokedex<-pokedex[,-c(2,4,40)]
+
+
+
+## création de variable binaire pour le dévellopement de l'oeuf
+
+pokedex$growth_rate[pokedex$growth_rate == "Medium Fast"] <- "Fast"
+pokedex$growth_rate[pokedex$growth_rate == "Medium Slow"] <- "Slow"
+pokedex$growth_rate[pokedex$growth_rate == "Erratic"] <- "Fluctuating"
+#pokedex %>% group_by(growth_rate) %>% count() %>% arrange(desc(n))
+
+## creation indicatrice Fast/Slow et Fluctuating
+pokedex$growth_Fast_Slow <- as.factor(pokedex$growth_rate)
+#pokedex %>% group_by(growth_rate) %>% count() %>% arrange(desc(n)) 
+#Fast : 545 ; Slow : 427 ; Fluctuating : 22
+
+#FAST
+pokedex$fast <- pokedex$growth_Fast_Slow
+levels(pokedex$fast)[1]<- 1
+levels(pokedex$fast)[c(2:3)] <- 0
+
+#FLUCTUATING
+pokedex$fluctuating <- pokedex$growth_Fast_Slow
+levels(pokedex$fluctuating)[2]<- 1
+levels(pokedex$fluctuating)[c(1,3)] <- 0
+
+
+
+###egg_type_1
+
+pokedex$egg_type_1[pokedex$egg_type_1 == "Water 1"] <- "Water"
+pokedex$egg_type_1[pokedex$egg_type_1 == "Water 2"] <- "Water"
+pokedex$egg_type_1[pokedex$egg_type_1 == "Water 3"] <- "Water"
+pokedex %>% group_by(egg_type_1) %>% count() %>% arrange(desc(n)) ## on va se concentrer sur les 2 modalités les plus fréquentes : Field et Undiscovered
+
+#Création de l'indicatrice pour egg_type1 : Undiscovered
+pokedex$Undiscovered = ifelse(pokedex$egg_type_1=="Undiscovered",1,0) 
+
+#Création de l'indicatrice pour egg_type_1 : Field
+pokedex$Field = ifelse(pokedex$egg_type_1=="Field",1,0)
+
+
+pokedex<-pokedex[,-c(41,14,16)]
+
+#pokedex
+```
+
+
+Pour les variables against nous choisissons de garder seulement celles dont le type est le plus représenté. c'est à dire que nous gardons les against des types : Water, normal, bug, grass, Fire et Psychic
+
+
+```{r include=FALSE}
+pokedex<-pokedex[,-c(20,22:26,29:34,15)]
+pokedex
+
+```
+
+Après nous être renseignées ,  nous avons trouvé qu’une catégorie de pokemon avait la particularité d’être assexué. La variable percentage_male aurait pu être interessante mais elle fait partie des variables avec des valeurs non renseignées. Nous avons émit l’hypothèse que les NA correspondaient au terme « asexué », mais après vérification dans le pokedex, ce n’était pas forcement le cas à chaque fois.
+Par conséquent nous avons décidé de mettre de côté cette variable.
+
+```{r include=FALSE}
+#pokedex$percent_male_binaire = ifelse(is.na(pokedex$percentage_male),1,0) 
+
+```
+
+Passage des variables facteurs en numériques
+
+```{r}
+pokedex$normal<-as.numeric(pokedex$normal)
+pokedex$eau<-as.numeric(pokedex$eau)
+pokedex$feu<-as.numeric(pokedex$feu)
+pokedex$herbe<-as.numeric(pokedex$herbe)
+pokedex$fast<-as.numeric(pokedex$fast)
+pokedex$fluctuating<-as.numeric(pokedex$fluctuating)
+pokedex$Undiscovered<-as.numeric(pokedex$Undiscovered)
+pokedex$Field<-as.numeric(pokedex$Field)
+```
+
+
+
+#Corrélation de nos variables
+
+```{r echo=FALSE}
+M <- cor(pokedex)
+corrplot(M, method = "circle", type = "lower", is.corr = TRUE, srt = 15)
+
+```
+On enlève les variables undiscovered, egg_cycles et total_points car trop corrélées entres elles.
+
+```{r echo=FALSE}
+pokedex<-pokedex[,-c(15,6,28)]
+M <- cor(pokedex)
+corrplot(M, method = "circle", type = "lower", is.corr = TRUE, srt = 15)
+```
+Corrélation OK 
+
+
+
+
+
+# Standardisation des données
+
+```{r}
+pokedex2<-scale(pokedex)
+sum(is.na(pokedex2))
+# il n'y a plus de NA
+```
+
+
+# Classification des individus
+
+## Classification ascendante hiérarchique (CAH)
+
+On effectue plusieurs classification avec différents critères. La méthode du saut maximal, saut minimal et Ward.
+
+```{r fig.height=10, fig.width=15}
+d=dist(pokedex2)
+
+par(mfrow=c(3,3))
+
+### methode du saut  maximal
+cah.complete = hclust(d,method="complete")
+plot(cah.complete,hang=-1,main="Dendrogramme méthode du saut maximal",xlab="saut maximal")
+### methode du saut minimal
+cah.single = hclust(d,method="single")
+plot(cah.single,hang=-1,,main="Dendrogramme méthode du saut minimal",xlab="saut minimal")
+###CAH Ward 
+cah.ward = hclust(d,method="ward.D2")
+plot(cah.ward,hang=-1,main="Dendrogramme méthode de Ward",xlab="méthode de ward")
+
+### methode du saut  maximal
+plot(rev(cah.complete$height)[1:20],type="b",ylab="Height",main="Evolution de l'inertie totale (saut maximal)")
+
+### methode du saut  MINIMAL
+plot(rev(cah.single$height)[1:20],type="b",ylab="Height",main="Evolution de l'inertie totale (saut minimal)")
+
+### CAH Ward
+plot(rev(cah.ward$height)[1:15],type="b",ylab="Height",main="Evolution de l'inertie totale (ward)")
+
+
+
+
+```
+
+D'après la distance du saut maximal on prendrait plutot K=2 ou K=4, pour la distance du saut minimal K=3 et enfin pour la méthode de Ward K=2. De plus en observant les dendrogrammes, on s'apercoit raipdement que c'est le critère de Ward qui correspond le mieux à nos données. On voit qu'on peut partitionner nos données en 2 groupes.
+
+```{r}
+
+NbClust(pokedex2, min.nc = 2, max.nc = 8, method = "ward.D2")
+
+
+```
+
+Cela nous conforte sur le choix de K=2
+
+
+
+
+```{r echo=FALSE}
+fviz_dend(cah.ward, k = 2,                 # couper en 2 groupes
+          cex = 0.5,                 # label size
+          color_labels_by_k = TRUE,  # color labels by groups
+          ggtheme = theme_gray())     # Change theme)
+```
+
+On observe que notre jeu de données est bien séparé en 2 groupes.
+
+
+```{r}
+
+I.intra = sapply(1:20,FUN=function(k) kmeans(pokedex2,centers=k,nstart=50)$tot.withinss)
+plot(I.intra,type="b",xlab="nb groupes",ylab="inertie intra")
+NbClust(pokedex2, min.nc = 2, max.nc = 8, method = "kmeans")
+```
+Pour la méthode des kmeans on prendrait aussi K=2
+
+
+
+
+
+
+## Création des groupes
+
+```{r include=FALSE}
+#groupe pour la méthode de ward
+nbc <- 2
+gpe.ward <- cutree(cah.ward, k = nbc)
+```
+
+
+```{r include=FALSE}
+#Groupe pour les k-means
+k=2
+pokedex.kmeans = kmeans(pokedex2,centers=k,nstart=50)
+```
+
+
+
+```{r echo=FALSE}
+acp2 <- prcomp(pokedex2,  scale = T)
+# attribuer un gradient de couleur sur l'importance relative de chaque facteur
+
+fviz_pca_var(acp2, col.var = "contrib", gradient.cols = c("white", "blue", "red"), ggtheme = theme_minimal())
+fviz_pca_biplot(acp2, label = "var", habillage = gpe.ward, addEllipses = TRUE, ellipse.level = c(0.7), select.var = list(contrib = 14),title="ACP avec les groupes de la méthode de Ward")
+fviz_pca_biplot(acp2, label = "var", habillage = pokedex.kmeans$cluster, addEllipses = TRUE, ellipse.level = c(0.7), select.var = list(contrib = 14),title="ACP avec les groupes de la méthode des K-means")
+```
+
+
+
+
+
+
+
+
+
+
